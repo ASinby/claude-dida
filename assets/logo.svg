@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="claude-dida logo：一只举着喇叭的小宠物">
+
+  <!-- sound waves -->
+  <g fill="none" stroke="#D97757" stroke-width="4" stroke-linecap="round" transform="translate(-15, 0)">
+    <path d="M113.4 54.1 A9 9 0 0 1 113.4 67.9"/>
+    <path d="M117.6 48.9 A15.5 15.5 0 0 1 117.6 73.1"/>
+    <path d="M121.8 43.8 A22 22 0 0 1 121.8 78.2" stroke-opacity="0.5"/>
+  </g>
+
+  <!-- body -->
+  <rect x="10" y="40" width="75" height="50" rx="1" fill="#C1643F"/>
+
+  <!-- face -->
+  <rect x="32" y="61" width="5" height="10" fill="#3B2B26"/>
+  <rect x="64" y="61" width="5" height="10" fill="#3B2B26"/>
+
+  <!-- head -->
+  <rect x="1" y="70" width="10" height="8" fill="#C1643F"/>
+  <rect x="84" y="70" width="10" height="8" fill="#C1643F"/>
+
+  <!-- feet -->
+  <rect x="20" y="89" width="5" height="12" fill="#C1643F"/>
+  <rect x="30" y="89" width="5" height="12" fill="#C1643F"/>
+  <rect x="60" y="89" width="5" height="12" fill="#C1643F"/>
+  <rect x="69" y="89" width="5" height="12" fill="#C1643F"/>
+
+</svg>
