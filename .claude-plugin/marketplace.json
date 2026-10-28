@@ -9,7 +9,7 @@
       "name": "claude-dida",
       "source": "./",
       "description": "Claude Code 声音反馈：任务完成、需要输入、出错时播放提示音，内置 6 套可选主题",
-      "version": "0.1.0"
+      "version": "0.1.1"
     }
   ]
 }

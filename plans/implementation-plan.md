@@ -40,7 +40,7 @@
 | Windows 播放 | PowerShell + `PresentationCore` 的 `MediaPlayer` 可用；`Position` 随真实时间推进（实测 574ms 音效播到 574ms 结束），非静默空转 |
 | 音量 | `MediaPlayer.Volume` 取值 0~1 |
 | 冷启动 | PowerShell `-NoProfile` 约 290ms，单次播放进程总耗时约 1.9s（含等待时长）→ **不能同步阻塞** |
-| 子进程存活 | 裸 `detached: true` 会被回收（实测子进程写不出文件）；`detached + shell: true` 才能存活 |
+| 子进程存活 | 裸 `detached: true` 下 PowerShell **根本没启动**（现象是写不出文件，但归因是没控制台，不是被回收）；`detached + shell: true` 能存活但会闪窗。现行方案改用 wscript 隐藏启动器，详见 `windows-hidden-launcher-plan.md` |
 | `SessionStart` matcher | `source`：`startup` / `resume` / `clear` / `compact` |
 | `Notification` matcher | `notification_type`：`permission_prompt` / `idle_prompt` / `auth_success` / `elicitation_dialog` / `elicitation_complete` / `elicitation_response` |
 | 上下文注入 | `hookSpecificOutput.additionalContext` 可用 |

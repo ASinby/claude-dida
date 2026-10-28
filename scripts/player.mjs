@@ -1,7 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { logError } from './config.mjs';
 
 const PLATFORM = process.platform;
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const LAUNCHER = path.join(SCRIPT_DIR, 'win-play.vbs');
+const PLAY_SCRIPT = path.join(SCRIPT_DIR, 'win-play.ps1');
 
 function clampVolume(volume) {
   const n = Number(volume);
@@ -13,7 +20,36 @@ function psString(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function windowsCommand(file, volume) {
+/**
+ * wscript.exe is a GUI-subsystem program: no console, no window, and it outlives
+ * the parent. That lets it start a hidden console-subsystem PowerShell, which a
+ * detached Node spawn cannot do directly.
+ *
+ * Resolved by path rather than `where` so playback never pays for an extra process.
+ */
+function wscriptPath() {
+  const root = process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows';
+  const candidate = path.join(root, 'System32', 'wscript.exe');
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+function hiddenLauncher() {
+  const wscript = wscriptPath();
+  if (!wscript) return null;
+  if (!fs.existsSync(LAUNCHER) || !fs.existsSync(PLAY_SCRIPT)) return null;
+  return { wscript, launcher: LAUNCHER };
+}
+
+function windowsHiddenCommand(launcher, file, volume, inline) {
+  return {
+    type: 'argv',
+    command: launcher.wscript,
+    // //B keeps a failing VBS from opening a modal dialog that hangs forever.
+    args: ['//nologo', '//B', launcher.launcher, file, String(clampVolume(volume)), inline ? '1' : '0'],
+  };
+}
+
+function windowsLegacyCommand(file, volume) {
   const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName PresentationCore
@@ -33,8 +69,14 @@ $player.Close()
   const b64 = Buffer.from(script, 'utf16le').toString('base64');
   // -EncodedCommand keeps the payload to A-Za-z0-9+/= so cmd.exe never re-parses quotes.
   const line = `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${b64}`;
-  // Measured on Windows: bare `detached` gets reaped, `detached + shell: true` survives.
+  // Fallback only: `shell: true` flashes a console window, but it always plays.
   return { type: 'cmdline', line };
+}
+
+function windowsCommand(file, volume, inline) {
+  const launcher = hiddenLauncher();
+  if (launcher) return windowsHiddenCommand(launcher, file, volume, inline);
+  return windowsLegacyCommand(file, volume);
 }
 
 function whichAll(candidates) {
@@ -69,25 +111,33 @@ function linuxCommand(file, volume) {
   return null;
 }
 
-export function buildCommand(file, volume) {
-  if (PLATFORM === 'win32') return windowsCommand(file, volume);
+export function buildCommand(file, volume, inline = false) {
+  if (PLATFORM === 'win32') return windowsCommand(file, volume, inline);
   if (PLATFORM === 'darwin') return macCommand(file, volume);
   return linuxCommand(file, volume);
 }
 
 export function detectPlayer() {
   if (PLATFORM === 'win32') {
+    const launcher = hiddenLauncher();
     const probe = spawnSync(
       'powershell',
       ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.Major'],
       { encoding: 'utf8', timeout: 10000, windowsHide: true },
     );
     const ok = probe.status === 0;
+    const version = ok ? `PowerShell ${String(probe.stdout).trim()}` : String(probe.stderr ?? '').trim() || 'PowerShell not found';
+    if (!ok) {
+      return { platform: 'win32', backend: 'powershell MediaPlayer', available: false, detail: version };
+    }
+    if (launcher) {
+      return { platform: 'win32', backend: 'wscript → PowerShell MediaPlayer（隐藏启动）', available: true, detail: version };
+    }
     return {
       platform: 'win32',
-      backend: 'powershell MediaPlayer',
-      available: ok,
-      detail: ok ? `PowerShell ${String(probe.stdout).trim()}` : String(probe.stderr ?? '').trim() || 'PowerShell not found',
+      backend: 'powershell MediaPlayer（会闪窗）',
+      available: true,
+      detail: `${version}；wscript 或启动器文件缺失，已回落到 cmd 中转`,
     };
   }
   if (PLATFORM === 'darwin') {
@@ -107,7 +157,7 @@ export function detectPlayer() {
 export function playSound(file, options = {}) {
   const volume = clampVolume(options.volume);
   const inline = options.mode === 'inline';
-  const spec = buildCommand(file, volume);
+  const spec = buildCommand(file, volume, inline);
 
   if (!spec) {
     logError(`no audio backend available (platform=${PLATFORM}, file=${file})`);

@@ -10,13 +10,65 @@ Claude Code 声音反馈插件。任务完成、需要输入、出错时播放�
 
 ## 安装
 
+**环境要求**：Node ≥ 18。零 npm 依赖，不需要 `npm install`。
+
+三种方式按场景选：改代码就用第一种，日常使用用后两种。
+
+### 方式一：本地目录直接加载
+
+不经过市场、不改全局配置，适合开发和调试。
+
 ```bash
-claude --plugin-dir ./claude-dida
+# 在仓库根目录下
+cd /path/to/claude-dida
+claude --plugin-dir .
 ```
 
-或者作为插件市场安装（见下方「发布到市场」）。
+`--plugin-dir` 指向的是**包含 `.claude-plugin/` 的那个目录**。如果你当前在仓库的上一级目录，则写 `claude --plugin-dir ./claude-dida`。
 
-**环境要求**：Node ≥ 18。零 npm 依赖，不需要 `npm install`。
+改动代码后重启 Claude Code 即可生效，没有安装到半路的状态需要清理。
+
+### 方式二：从本地目录作为市场安装
+
+持久化到 `~/.claude/`，之后每次启动都自动加载。
+
+```
+/plugin marketplace add /path/to/claude-dida
+/plugin install claude-dida@claude-dida-marketplace
+```
+
+市场名 `claude-dida-marketplace` 来自 `.claude-plugin/marketplace.json` 的 `name` 字段，安装时写 `<插件名>@<市场名>`。也可以用 CLI：
+
+```bash
+claude plugin marketplace add /path/to/claude-dida
+claude plugin install claude-dida@claude-dida-marketplace
+```
+
+**装的是工作区快照，不是 git HEAD。** 未提交的改动同样会被拷进缓存目录，所以本地调试不必先 commit。但快照是拷贝而非活链接——改完代码要重新 install 才生效：
+
+```bash
+claude plugin uninstall claude-dida
+claude plugin install claude-dida@claude-dida-marketplace
+```
+
+安装位置：`~/.claude/plugins/cache/<市场名>/<插件名>/<版本>/`。只要版本号不变，重装会覆盖同一个目录。
+
+### 方式三：从 GitHub 安装
+
+给你自己或别人在别的机器上用。
+
+```
+/plugin marketplace add ASinby/claude-dida
+/plugin install claude-dida@claude-dida-marketplace
+```
+
+拿到的是仓库已提交的版本。本地改动必须先 commit 并 push，否则装不到——包括 `sounds/`、`scripts/` 里的脚本，它们和代码一起随包分发。
+
+### 装完之后
+
+重启 Claude Code 让插件加载，然后跑一次 `/dida-doctor` 确认 Node、配置、音效、播放器、Hook 全部就绪。有任何一项报红，先看下方「排错」。
+
+首次使用还需要选主题，见下一节。
 
 ## 快速开始
 
@@ -124,18 +176,26 @@ hooks.json → node dida.mjs play <event> → 读配置/判开关/去抖
           → spawn 播放器（detached）→ exit 0
 ```
 
+Windows 上这一层的实际形状：
+
+```
+dida.mjs → player.mjs ──detached──▶ wscript.exe（GUI 子系统，无控制台）
+                                        └─ Run(..., 0) ──▶ powershell.exe -WindowStyle Hidden
+                                                              └─▶ MediaPlayer 播放
+```
+
 几个刻意的设计：
 
 - **`hooks.json` 恒定注册全部事件**，开关判断在脚本内完成。所以 `/dida-off` 立即生效，不用改 hook 配置。
 - **所有异常路径一律 `exit 0`**。Hook 返回非零码会被 Claude Code 当成错误展示给用户，提示音插件不该有这种存在感。
-- **Windows 用 `-EncodedCommand`**：Hook 命令经 `cmd.exe` 解析，路径含空格或 `&` 时引号规则极易出错。整段 PowerShell 脚本 base64 编码后只剩下 `A-Za-z0-9+/=`，从根上绕开引号问题。
+- **Windows 走 `wscript` 隐藏启动器**：`wscript.exe` 是 GUI 子系统程序，没有控制台、不创建窗口，且父进程退出后照常存活。它用 `Run(cmd, 0)` 拉起隐藏窗口的 PowerShell 去播放。直接用 `detached` spawn PowerShell 不行——`DETACHED_PROCESS` 下控制台程序根本没有控制台，会静默不执行；加 `shell: true` 又会让 `cmd.exe` 拉出一个会闪的窗口，`windowsHide` 管不到那一层。`wscript` 缺失时自动回落到旧的 `shell: true` 方式（会闪窗，但保证能响）。
 - **`async: true` 与 detach 是双保险**：即便运行时不认 `async`，脚本也会在一百毫秒内自行退出。
 
 ## 跨平台
 
 | 平台 | 播放器 |
 |---|---|
-| Windows | PowerShell + `PresentationCore` MediaPlayer |
+| Windows | `wscript` 隐藏启动器 → PowerShell + `PresentationCore` MediaPlayer |
 | macOS | `afplay` |
 | Linux | `paplay` → `ffplay` → `mpv`，取第一个可用的 |
 
@@ -153,11 +213,37 @@ Linux 上三个都没有时，`/dida-doctor` 会报出来并给出安装建议�
 - **Hook 环境找不到 `node`**：nvm4w 等版本管理器装的 Node 可能不在 `cmd.exe` 的 PATH 里。`/dida-doctor` 会暴露该问题，届时把 `hooks.json` 里的 `node` 换成绝对路径。
 - **叠音**：调大 `dedupeMs`。
 
-## 发布到市场
+## 发布
+
+这个仓库本身就是市场，`.claude-plugin/marketplace.json` 里注册了一个插件，`source: "./"` 表示插件内容就是仓库根目录。别人可以直接：
 
 ```
-/plugin marketplace add <你的仓库>
+/plugin marketplace add ASinby/claude-dida
+/plugin install claude-dida@claude-dida-marketplace
 ```
+
+改版本号要同步改两处，否则 `/plugin` 不会认为有新版本：
+
+- `.claude-plugin/plugin.json` 的 `version`
+- `.claude-plugin/marketplace.json` 中对应条目的 `version`
+
+两处不一致可以用工具校验：
+
+```bash
+claude plugin validate .
+claude plugin tag .        # 顺手打个 {name}--v{version} 的 git tag
+```
+
+`tag` 会检查 `plugin.json` 与外层 marketplace 条目是否一致，不一致直接报错——比人肉比对可靠。
+
+改完 commit 并 push。用户侧更新：
+
+```bash
+claude plugin marketplace update claude-dida-marketplace
+claude plugin update claude-dida
+```
+
+重启 Claude Code 后生效。
 
 ## 音效来源
 
