@@ -156,16 +156,22 @@ node scripts/dida.mjs reset        # 恢复默认
 - **`subagentStop`**：`SubagentStop` 单独判断，默认关。
 - **`dedupeMs`**：同一事件的去抖窗口。`PostToolUseFailure` 和 `StopFailure` 共用 `error` 音效，靠它避免叠音。
 - **`quietHours`**：静默时段，支持跨午夜（如 `22:00` ~ `08:00`）。
-- **`overrides`**：把某个事件映射到自定义 mp3 绝对路径。路径不存在时回落到主题内置音效。
+- **`overrides`**：把某个事件映射到自定义音频绝对路径，优先级高于主题。路径不存在时回落到主题内置音效。命令行写入：`node scripts/dida.mjs set overrides.task-complete "D:\音效\done.wav"`；`set overrides.task-complete null` 可清除映射。
 - **`playbackMode`**：`detach`（默认，拉起独立播放器后立刻返回）或 `inline`（同步播放，兜底用）。
 
 ## 主题
 
-内置 6 套：`default` `fantasy` `minimal` `nasa` `retro` `sci-fi`，每套 5 个音效。
+内置 7 套：`default` `fantasy` `minimal` `nasa` `ra2md` `retro` `sci-fi`，每套 5 个音效。其中 `ra2md` 是 `wav` 格式，其余为 `mp3`。
 
 `default` 是回退主题：用户还没选过主题时，所有事件都用它发声。选定主题后 `default` 就不再参与播放。
 
-自定义主题：在 `sounds/` 下建一个目录，放齐 5 个 mp3，文件名必须是 `session-start.mp3` `task-complete.mp3` `need-input.mp3` `idle.mp3` `error.mp3`。`/dida-doctor` 会自动识别并校验完整性。
+自定义主题：在 `sounds/` 下建一个目录，放齐 5 个音频，文件名必须是 `session-start.<ext>` `task-complete.<ext>` `need-input.<ext>` `idle.<ext>` `error.<ext>`。`/dida-doctor` 会自动识别并校验完整性。
+
+### 支持的音频格式
+
+`mp3` `wav` `m4a` `aac` `flac` `wma` `aiff` `aif` `caf`——即 Windows Media Foundation 与 macOS Core Audio 都能直接解码的格式，主题内音效与 `overrides` 同此范围。同一事件存在多个格式时按上述顺序取第一个，所以 `.mp3` 优先。
+
+**不支持 `ogg` / `opus`**：Windows 不自带这两个解码器，macOS 的 `afplay` 也不认。Linux 走 `ffplay`/`mpv` 时虽然能播，为保证跨平台一致，选音效时请避开。
 
 ## 工作原理
 

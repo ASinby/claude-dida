@@ -12,13 +12,16 @@ import {
   readConfig,
   setKey,
   updateConfig,
+  writeConfig,
 } from './config.mjs';
 import {
+  AUDIO_EXTS,
   DEFAULT_THEME,
   EVENTS,
   PLUGIN_ROOT,
   SOUNDS_DIR,
   effectiveTheme,
+  isAudioFile,
   listEvents,
   listThemes,
   resolveSound,
@@ -37,6 +40,7 @@ const CONFIG_KEYS = new Set([
   'quietHours.start',
   'quietHours.end',
   ...EVENTS.map((event) => `events.${event}`),
+  ...EVENTS.map((event) => `overrides.${event}`),
 ]);
 
 function parseArgs(argv) {
@@ -160,8 +164,28 @@ function cmdSet(positional) {
     process.stderr.write(`${key} 需要 HH:MM 格式（00:00-23:59），收到: ${value}\n`);
     process.exit(1);
   }
-  const config = setKey(key, value);
-  process.stdout.write(`${key} = ${JSON.stringify(key.includes('.') ? config[key.split('.')[0]][key.split('.')[1]] : config[key])}\n`);
+  if (key.startsWith('overrides.') && value !== 'null') {
+    if (!isAudioFile(value)) {
+      const ext = path.extname(value) || '(无扩展名)';
+      process.stderr.write(`${key} 不支持该格式: ${ext}\n支持格式: ${AUDIO_EXTS.join(', ')}\n`);
+      process.exit(1);
+    }
+    if (!fs.existsSync(value)) {
+      process.stderr.write(`警告: 文件尚不存在，播放时会被忽略: ${value}\n`);
+    }
+  }
+  // `set overrides.<event> null` clears the mapping instead of storing the string "null".
+  const config = key.startsWith('overrides.') && value === 'null' ? clearOverride(key) : setKey(key, value);
+  const [head, leaf] = key.split('.');
+  const shown = leaf ? config[head]?.[leaf] : config[head];
+  process.stdout.write(`${key} = ${JSON.stringify(shown ?? null)}\n`);
+}
+
+function clearOverride(key) {
+  const event = key.slice('overrides.'.length);
+  const config = readConfig();
+  delete config.overrides[event];
+  return writeConfig(config);
 }
 
 function cmdGet() {
@@ -210,7 +234,7 @@ function cmdPreview(positional, flags) {
   for (const name of targets) {
     const file = resolveSound(theme, name, config);
     if (!file) {
-      process.stderr.write(`缺失音效: ${theme}/${name}.mp3\n`);
+      process.stderr.write(`缺失音效: ${theme}/${name}${AUDIO_EXTS[0]}（或 ${AUDIO_EXTS.slice(1).join(' ')}）\n`);
       failed += 1;
       continue;
     }
@@ -265,6 +289,13 @@ function cmdDoctor() {
   const missing = EVENTS.filter((event) => !resolveSound(config.theme, event, config));
   if (missing.length) bad(`主题 ${checkTheme} 缺音效`, missing.join(', '));
   else ok(`主题 ${checkTheme} 音效齐全`, `${EVENTS.length} 个`);
+
+  const overrides = Object.entries(config.overrides ?? {});
+  const broken = overrides.filter(([, file]) => !fs.existsSync(file)).map(([event]) => event);
+  const working = overrides.filter(([, file]) => fs.existsSync(file));
+  if (working.length) ok('overrides 生效', working.map(([event, file]) => `${event} → ${file}`).join('; '));
+  else ok('overrides', '未使用');
+  if (broken.length) warn('overrides 指向的文件不存在', broken.join(', '));
 
   lines.push('');
   lines.push('播放器');
